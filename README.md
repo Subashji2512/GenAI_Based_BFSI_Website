@@ -23,7 +23,7 @@ An intelligent, end-to-end document verification system for BFSI (Banking, Finan
 - **PDF Processing**: `pdfplumber`, `PyPDF2`
 - **Database**: MySQL
 - **Email Service**: SMTP
-- **Vector Search (if used)**: FAISS
+- **Vector Search**: FAISS
 - **Text Processing**: LangChain (for splitting and handling large docs)
 
 ---
