@@ -10,6 +10,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import text
 import pymysql
 from verify import verify_documents
+from extract import extract_documents
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -25,6 +26,7 @@ app.config['SQLALCHEMY_ECHO'] = True  # Add SQL logging
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 AADHAR_FOLDER = os.path.join(UPLOAD_FOLDER, 'aadhar')
 PAN_FOLDER = os.path.join(UPLOAD_FOLDER, 'pan')
+INVOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'invoice')
 
 # Create folders if they don't exist
 for folder in [UPLOAD_FOLDER, AADHAR_FOLDER, PAN_FOLDER]:
@@ -66,6 +68,14 @@ def allowed_file(filename):
 with app.app_context():
     # Only create tables if they don't exist
     db.create_all()
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
+    response.headers.add('Access-Control-Allow-Credentials', 'true')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+    return response
 
 # --- Routes ---
 @app.route("/check-db")
@@ -241,31 +251,49 @@ def dashboard():
         print("Dashboard Error:", str(e))
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-@app.route("/upload", methods=["POST"])
-@jwt_required()
+@app.route("/upload-invoice", methods=["GET","POST","OPTIONS"])
 def upload_file():
+    if request.method == "OPTIONS":
+        return '', 200
+    
+    if request.method == "GET":
+        return jsonify({"message": "Invoice upload endpoint is live"}), 200
     try:
         if 'file' not in request.files:
             return jsonify({"error": "No file part"}), 400
         
-        file = request.files['file']
-        if file.filename == '':
+        invoice_file = request.files['file']
+        if invoice_file.filename == '':
             return jsonify({"error": "No selected file"}), 400
         
-        if not allowed_file(file.filename):
+        if not allowed_file(invoice_file.filename):
             return jsonify({"error": "Invalid file type"}), 400
         
-        filename = secure_filename(file.filename)
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-        file.save(filepath)
+        timestamp = int(time.time())
+
+        invoice_filename = f"{timestamp}_{secure_filename(invoice_file.filename)}"
         
-        return jsonify({"message": f"File uploaded: {filename}", "path": filepath}), 200
+        invoice_path = os.path.join(INVOICE_FOLDER, invoice_filename)
+        
+        # Save files
+        invoice_file.save(invoice_path)
+        db_invoice_path = os.path.join('uploads/invoice', invoice_filename)
+
+        result1 = extract_documents(db_invoice_path)
+        print(result1)
+
+        return jsonify({
+            "status": "success",
+            "file_name": invoice_filename,
+            "invoice_id": result1.get("invoice_id"),
+            "extracted_data": result1.get("extracted_data")
+        }), 200
     
     except Exception as e:
         print("Upload Error:", str(e))
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-# --- Run ---
+# --- Run ---+
 if __name__ == "__main__":
     print("Starting Flask application...")
     print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
