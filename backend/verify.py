@@ -7,10 +7,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pdf2image import convert_from_path
 from dotenv import load_dotenv
-
-
 # Configure Google Gemini API
-# Load environment variables
+# Load
 load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 if api_key:
