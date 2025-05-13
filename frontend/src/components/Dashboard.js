@@ -1,14 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-
-function getCSRFToken() {
-  const cookie = document.cookie
-    .split("; ")
-    .find(row => row.startsWith("csrftoken="));
-  return cookie ? cookie.split("=")[1] : "";
-}
-
 function App() {
   const [message, setMessage] = useState("Loading...");
   const [file, setFile] = useState(null);
@@ -20,7 +12,7 @@ function App() {
   // Fetch API status
   useEffect(() => {
     axios
-      .get("http://127.0.0.1:5000/upload-invoice/")
+      .get("http://127.0.0.1:5000/upload-invoice")
       .then((response) => setMessage(response.data.message))
       .catch((error) => {
         console.error("Error fetching data: ", error);
@@ -55,15 +47,12 @@ function App() {
     formData.append("file", file);
 
     try {
-      const csrfToken = getCSRFToken();
-      
       const res = await axios.post(
-        "http://127.0.0.1:5000/upload-invoice/",
+        "http://127.0.0.1:5000/upload-invoice",
         formData,
         {
           headers: {
             "Content-Type": "multipart/form-data",
-            "X-CSRFToken": csrfToken,
           },
           withCredentials: true,
         }
