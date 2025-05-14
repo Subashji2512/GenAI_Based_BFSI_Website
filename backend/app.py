@@ -1,18 +1,26 @@
 from flask import Flask, request, jsonify, send_from_directory
-import bcrypt
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity
 import os
 import time
+import json
 from werkzeug.utils import secure_filename
 from sqlalchemy import text
-import pymysql
+import tempfile
+from pathlib import Path
+from datetime import datetime
 from verify import verify_documents
-from extract import extract_documents
+from dotenv import load_dotenv
 
-# Initialize Flask app
+# Import our invoice processor module
+from invoice_processor import InvoiceProcessor
+
+# --- Import DB and Models ---
+from models import db, Users, Invoice, InvoiceData
+
+# --- Flask App Setup ---
 app = Flask(__name__)
 
 # --- Configurations ---
@@ -20,68 +28,60 @@ app.config['SECRET_KEY'] = 'demo'
 app.config['JWT_SECRET_KEY'] = 'supersecret-jwt-key'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:Subash%4025@localhost:3306/invoice_processor'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ECHO'] = True  # Add SQL logging
+app.config['SQLALCHEMY_ECHO'] = True
 
 # Define upload directories
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 AADHAR_FOLDER = os.path.join(UPLOAD_FOLDER, 'aadhar')
 PAN_FOLDER = os.path.join(UPLOAD_FOLDER, 'pan')
-INVOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'invoice')
+INVOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'invoices')
 
 # Create folders if they don't exist
-for folder in [UPLOAD_FOLDER, AADHAR_FOLDER, PAN_FOLDER]:
+for folder in [UPLOAD_FOLDER, AADHAR_FOLDER, PAN_FOLDER, INVOICE_FOLDER]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
+# App Configuration
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-app.config['MAX_CONTENT_LENGTH'] = 5 * 1024 * 1024  # 5MB max upload size
+app.config['AADHAR_FOLDER'] = AADHAR_FOLDER
+app.config['PAN_FOLDER'] = PAN_FOLDER
+app.config['INVOICE_FOLDER'] = INVOICE_FOLDER
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
+app.config['JWT_TOKEN_LOCATION'] = ['headers']
+app.config['JWT_HEADER_NAME'] = 'Authorization'
+app.config['JWT_HEADER_TYPE'] = 'Bearer'
 
-# --- Extensions ---
+# API key for Google Gemini AI
+load_dotenv()
+GEMINI_API_KEY= os.getenv("GOOGLE_API_KEY")
+
+# --- Initialize Extensions ---
+db.init_app(app)
 bcrypt = Bcrypt(app)
-CORS(app, resources={r"/*": {"origins": "http://localhost:3000"}}, supports_credentials=True)
+# Fix: Updated CORS configuration
+CORS(app, resources={r"/*": {"origins": ["http://localhost:3000"], "supports_credentials": True}})
 jwt = JWTManager(app)
-db = SQLAlchemy(app)
 
-# --- User Model ---
-class Users(db.Model):
-    __tablename__ = 'users'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    dob = db.Column(db.Date, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
-    phone = db.Column(db.BigInteger, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
-    aadhar_file = db.Column(db.String(50), nullable=False)  # Path to stored Aadhar file
-    pan_file = db.Column(db.String(255), nullable=False)     # Path to stored PAN file
-    status = db.Column(db.Enum('pending', 'rejected', 'verified', name='status_enum'),default='pending',nullable=False)
-    uploaded_time = db.Column(db.DateTime,default=db.func.current_timestamp(),nullable=False)
-    
-    def __repr__(self):
-        return f'<Users {self.email}>'
+# Initialize invoice processor
+invoice_processor = InvoiceProcessor(api_key=GEMINI_API_KEY)
 
-# --- Helper Functions ---
+# --- Create Upload Folders ---
+for folder in [app.config['UPLOAD_FOLDER'], app.config['AADHAR_FOLDER'], app.config['PAN_FOLDER'], app.config['INVOICE_FOLDER']]:
+    os.makedirs(folder, exist_ok=True)
+
+# Helper Functions
 def allowed_file(filename):
     ALLOWED_EXTENSIONS = {'pdf', 'jpg', 'jpeg', 'png'}
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# --- DB Initialization --- 
-with app.app_context():
-    # Only create tables if they don't exist
-    db.create_all()
-
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', 'http://localhost:3000')
-    response.headers.add('Access-Control-Allow-Credentials', 'true')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
-    return response
-
 # --- Routes ---
+@app.route('/')
+def home():
+    return jsonify({"message": "Welcome to the BFSI backend!"})
+
 @app.route("/check-db")
 def check_db():
     try:
-        # Use text() to properly wrap SQL queries
         result = db.session.execute(text('SELECT 1')).fetchone()
         return jsonify({"status": "Database connected", "result": str(result[0])})
     except Exception as e:
@@ -95,6 +95,8 @@ def list_users():
         return jsonify({"count": len(user_list), "users": user_list})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Welcome to the BFSI backend!"})
+
 
 @app.route("/signup", methods=["POST", "GET"])
 def signup():
@@ -111,7 +113,7 @@ def signup():
         phone = request.form.get('phone')
         password = request.form.get('password')
 
-        # ✅ Use file data
+        # Use file data
         aadhar_file = request.files.get('aadhar')
         pan_file = request.files.get('pan')
 
@@ -151,7 +153,7 @@ def signup():
         db_aadhar_path = os.path.join('uploads/aadhar', aadhar_filename)
         db_pan_path = os.path.join('uploads/pan', pan_filename)
 
-        # ✅ Verify documents using your Gemini + email script
+        # Verify documents using Gemini + email script
         result = verify_documents(db_aadhar_path, db_pan_path, email)
         print(result)
 
@@ -161,16 +163,18 @@ def signup():
         # Create new user
         hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
+        # Convert dob string to datetime
+        dob_date = datetime.strptime(dob, '%Y-%m-%d').date() if dob else None
+
         new_user = Users(
             name=name,
-            dob=dob,
+            dob=dob_date,
             email=email,
             phone=phone,
             password=hashed_password,
             aadhar_file=result['Aadhaar'],
             pan_file=result['PAN'],
             status=result["Status"],
-
         )
         
         # Add and commit to database
@@ -179,7 +183,7 @@ def signup():
         
         print(f"User created: ID={new_user.id}, email={new_user.email}")
         print("done")
-        # Generate token
+        # Generate token - ENSURE we use user ID as identity
         access_token = create_access_token(identity=new_user.id)
         return jsonify({
             "token": access_token,
@@ -215,11 +219,13 @@ def login():
         
         user = Users.query.filter_by(email=email).first()
         if user and bcrypt.check_password_hash(user.password, password):
+            # ENSURE we use user ID as identity for JWT token
             token = create_access_token(identity=user.id)
             return jsonify({
                 "token": token, 
                 "email": user.email,
                 "name": user.name,
+                "user_id": user.id,  # Add user_id to response for consistency
                 "message": "Login successful"
             })
         
@@ -230,18 +236,36 @@ def login():
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
 @app.route("/dashboard", methods=["GET"])
-@jwt_required()
 def dashboard():
     try:
-        user_id = get_jwt_identity()
-        user = Users.query.get(user_id)
+        # Get email from request query parameters or default to a test user
+        email = request.args.get('email')
+        
+        # If no email provided, return a default response
+        if not email:
+            return jsonify({
+                "message": "Welcome Guest User!",
+                "user_id": 0,
+                "email": "guest@example.com",
+                "name": "Guest User",
+                "phone": "Not provided"
+            })
+            
+        # Find user by email
+        user = Users.query.filter_by(email=email).first()
         
         if not user:
-            return jsonify({"error": "User not found"}), 404
-            
+            return jsonify({
+                "message": "Welcome Guest User!",
+                "user_id": 0,
+                "email": email,
+                "name": "Guest User",
+                "phone": "Not provided"
+            })
+         
         return jsonify({
             "message": f"Welcome {user.name}!",
-            "user_id": user_id,
+            "user_id": user.id,
             "email": user.email,
             "name": user.name,
             "phone": user.phone
@@ -251,50 +275,136 @@ def dashboard():
         print("Dashboard Error:", str(e))
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-@app.route("/upload-invoice", methods=["GET","POST","OPTIONS"])
-def upload_file():
-    if request.method == "OPTIONS":
-        return '', 200
+@app.route('/user-invoices', methods=['GET'])
+def get_user_invoices():
+    # Get user_id from query parameters or default to 0
+    user_id = request.args.get('user_id', 0, type=int)
     
-    if request.method == "GET":
-        return jsonify({"message": "Invoice upload endpoint is live"}), 200
+    # If no user_id or user_id is 0, return empty list
+    if not user_id:
+        return jsonify({'invoices': []})
+
+    # Get all invoices for this user
     try:
-        if 'file' not in request.files:
-            return jsonify({"error": "No file part"}), 400
+        user = Users.query.get(user_id)
+        if not user:
+            return jsonify({'message': 'User not found', 'invoices': []}), 404
+            
+        invoices = Invoice.query.filter_by(user_id=user_id).all()
+        invoice_list = []
         
-        invoice_file = request.files['file']
-        if invoice_file.filename == '':
-            return jsonify({"error": "No selected file"}), 400
-        
-        if not allowed_file(invoice_file.filename):
-            return jsonify({"error": "Invalid file type"}), 400
-        
-        timestamp = int(time.time())
-
-        invoice_filename = f"{timestamp}_{secure_filename(invoice_file.filename)}"
-        
-        invoice_path = os.path.join(INVOICE_FOLDER, invoice_filename)
-        
-        # Save files
-        invoice_file.save(invoice_path)
-        db_invoice_path = os.path.join('uploads/invoice', invoice_filename)
-
-        result1 = extract_documents(db_invoice_path)
-        print(result1)
-
+        for invoice in invoices:
+            invoice_data = {
+                'id': invoice.id,
+                'invoice_number': invoice.invoice_number,
+                'vendor_details': invoice.vendor_details,
+                'date': invoice.date,
+                'total_amount': invoice.total_amount,
+                'tax_amount': invoice.tax_amount,
+                'subtotal_amount': invoice.subtotal_amount,
+                'category': invoice.category,
+                'classification_confidence': invoice.classification_confidence,
+                'line_items': json.loads(invoice.line_items) if invoice.line_items else []
+            }
+            invoice_list.append(invoice_data)
+            
         return jsonify({
-            "status": "success",
-            "file_name": invoice_filename,
-            "invoice_id": result1.get("invoice_id"),
-            "extracted_data": result1.get("extracted_data")
-        }), 200
-    
+            'invoices': invoice_list
+        })
     except Exception as e:
-        print("Upload Error:", str(e))
-        return jsonify({"error": f"Internal server error: {str(e)}"}), 500
+        return jsonify({'message': f'Error retrieving invoices: {str(e)}', 'invoices': []}), 500
 
-# --- Run ---+
-if __name__ == "__main__":
-    print("Starting Flask application...")
-    print(f"Database URI: {app.config['SQLALCHEMY_DATABASE_URI']}")
-    app.run(debug=True,port=5000)
+@app.route('/upload-invoice', methods=['POST'])
+def upload_invoice():
+    # Get user_id from form or query parameters, default to 1 if not provided
+    user = request.form.get('user_id', request.args.get('user_id', 1, type=int))
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request'}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    allowed_extensions = {'pdf', 'jpg', 'jpeg', 'png'}
+    if not file.filename.split('.')[-1].lower() in allowed_extensions:
+        return jsonify({'error': 'File type not allowed. Please upload PDF, JPG, JPEG, or PNG.'}), 400
+
+    try:
+        # Save the file
+        timestamp = int(time.time())
+        filename = f"{timestamp}_{secure_filename(file.filename)}"
+        file_path = os.path.join(app.config['INVOICE_FOLDER'], filename)
+        file.save(file_path)
+
+        # Process the invoice with our invoice processor
+        extracted_data = invoice_processor.process_invoice(file_path)
+        
+        # Extract JSON from the response text
+        json_data = invoice_processor.extract_json_from_ai_response(extracted_data)
+        
+        # Check for errors
+        if "error" in json_data:
+            return jsonify({"error": json_data["error"]}), 500
+            
+        # Convert the json_data to a string for storage
+        extracted_json_str = json.dumps(json_data)
+        
+        # Save file info to InvoiceData model
+        invoice_data_entry = InvoiceData(
+            # user_id=user.id,
+            file_name=file.filename,
+            file_path=file_path,
+            extracted_data=extracted_json_str
+        )
+        db.session.add(invoice_data_entry)
+        db.session.commit()
+        
+        # Parse extracted data for structured storage
+        parsed_data = invoice_processor.parse_invoice_data(json_data)
+        
+        # Store extracted structured invoice data in the Invoice model
+        try:
+            invoice_record = Invoice(
+                user_id=user.id,
+                invoice_number=parsed_data["invoice_number"],
+                vendor_details=parsed_data["vendor_details"],
+                date=parsed_data["date"],
+                total_amount=parsed_data["total_amount"],
+                tax_amount=parsed_data["tax_amount"],
+                subtotal_amount=parsed_data["subtotal_amount"],
+                category=parsed_data["category"],
+                classification_confidence=parsed_data["classification_confidence"],
+                line_items=json.dumps(parsed_data["line_items"])
+            )
+            db.session.add(invoice_record)
+            db.session.commit()
+            invoice_id = invoice_record.id
+        except Exception as e:
+            invoice_id = None
+            print(f"Error creating Invoice record: {str(e)}")
+
+        response_data = {
+            "message": "File uploaded and processed successfully",
+            "file_name": file.filename,
+            "file_path": file_path,
+            "extracted_data": json_data,
+            "invoice_id": invoice_id,
+            "status": "success"
+        }
+        return jsonify(response_data), 200
+    except Exception as e:
+        print(f"Error processing invoice: {str(e)}")
+        return jsonify({"error": f"Error processing invoice: {str(e)}"}), 500
+
+# --- Initialize DB ---
+with app.app_context():
+    db.create_all()
+
+# --- Run App (Optional for development) ---
+if __name__ == '__main__':
+    app.run(debug=True)

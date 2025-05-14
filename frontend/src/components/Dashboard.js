@@ -1,24 +1,45 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 
-function App() {
-  const [message, setMessage] = useState("Loading...");
-  const [file, setFile] = useState(null);
-  const [response, setResponse] = useState(null);
+function Dashboard() {
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [file, setFile] = useState(null);
   const [filename, setFilename] = useState("No file selected");
+  const [processingInvoice, setProcessingInvoice] = useState(false);
+  const [invoiceResponse, setInvoiceResponse] = useState(null);
+  const [invoiceError, setInvoiceError] = useState(null);
 
-  // Fetch API status
+  // Get token from localStorage
+  const token = localStorage.getItem('accessToken');
+
+  // Fetch user data on component mount
   useEffect(() => {
-    axios
-      .get("http://127.0.0.1:5000/upload-invoice")
-      .then((response) => setMessage(response.data.message))
-      .catch((error) => {
-        console.error("Error fetching data: ", error);
-        setMessage("Failed to load data.");
-      });
-  }, []);
+    if (!token) {
+      setError("No authentication token found. Please login.");
+      setLoading(false);
+      return;
+    }
+
+    const fetchUserData = async () => {
+      try {
+        const response = await axios.get('http://127.0.0.1:5000/dashboard', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        setUserData(response.data);
+      } catch (err) {
+        console.error("Error fetching user data:", err);
+        setError("Failed to load user data. Please try logging in again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserData();
+  }, [token]);
 
   // Handle file selection
   const handleFileChange = (event) => {
@@ -33,15 +54,15 @@ function App() {
   };
 
   // Handle file upload
-  const handleUpload = async () => {
+  const handleUploadInvoice = async () => {
     if (!file) {
       alert("Please select a file first!");
       return;
     }
 
-    setLoading(true);
-    setError(null);
-    setResponse(null);
+    setProcessingInvoice(true);
+    setInvoiceError(null);
+    setInvoiceResponse(null);
     
     const formData = new FormData();
     formData.append("file", file);
@@ -53,25 +74,32 @@ function App() {
         {
           headers: {
             "Content-Type": "multipart/form-data",
-          },
-          withCredentials: true,
+            "Authorization": `Bearer ${token}`
+          }
         }
       );
 
       console.log("Response received:", res.data);
-      setResponse(res.data);
+      setInvoiceResponse(res.data);
+      
+      // Clear file input after successful upload
+      setFile(null);
+      setFilename("No file selected");
+      
     } catch (error) {
       console.error("Error uploading file:", error);
       
       if (error.response) {
-        setError(`Server error: ${error.response.data.error || error.response.statusText}`);
+        // Get more detailed error message if available
+        const errorMessage = error.response.data.error || error.response.data.message || error.response.statusText;
+        setInvoiceError(`Server error: ${errorMessage}`);
       } else if (error.request) {
-        setError("No response from server. Please check your connection.");
+        setInvoiceError("No response from server. Please check your connection.");
       } else {
-        setError(`Error: ${error.message}`);
+        setInvoiceError(`Error: ${error.message}`);
       }
     } finally {
-      setLoading(false);
+      setProcessingInvoice(false);
     }
   };
 
@@ -121,10 +149,10 @@ function App() {
         format: value => processVendorDetails(value)
       },
       { key: 'date', label: 'Date' },
-      { key: 'total_amount', label: 'Total Amount', format: value => `$${parseFloat(value).toFixed(2)}` },
-      { key: 'tax_amount', label: 'Tax', format: value => `$${parseFloat(value).toFixed(2)}` },
-      { key: 'subtotal_amount', label: 'Subtotal', format: value => `$${parseFloat(value).toFixed(2)}` },
-      { key: 'classification_confidence', label: 'Classification Confidence', format: value => `${(parseFloat(value) * 100).toFixed(1)}%` }
+      { key: 'total_amount', label: 'Total Amount', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'tax_amount', label: 'Tax', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'subtotal_amount', label: 'Subtotal', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'classification_confidence', label: 'Classification Confidence', format: value => value ? `${(parseFloat(value) * 100).toFixed(1)}%` : 'N/A' }
     ];
 
     return (
@@ -156,8 +184,9 @@ function App() {
                 <li key={index} className="line-item">
                   <div className="line-item-details">
                     <span className="item-description">{item.description}</span>
-                    <span className="item-quantity">Qty: {item.quantity}</span>
-                    <span className="item-price">${parseFloat(item.price).toFixed(2)}</span>
+                    <span className="item-quantity">Qty: {item.quantity || 1}</span>
+                    <span className="item-unit-price">Unit: ${parseFloat(item.unit_price || 0).toFixed(2)}</span>
+                    <span className="item-total-price">Total: ${parseFloat(item.total_price || 0).toFixed(2)}</span>
                   </div>
                 </li>
               ))}
@@ -168,77 +197,98 @@ function App() {
     );
   };
 
+  if (loading) {
+    return <div className="loading">Loading user data...</div>;
+  }
+
+  if (error) {
+    return <div className="error-message">{error}</div>;
+  }
+
+  if (!userData) {
+    return <div className="error-message">User information not available. Please log in again.</div>;
+  }
+
   return (
-    <div className="container">
-      <div className="card">
-        <h1>AI-Powered Invoice Processor</h1>
-        <p className="redirect-message">Upload your invoice to know your expense category</p>
+    <div className="dashboard-container">
+      <div className="user-profile-section">
+        <h2>Welcome, {userData.name}</h2>
         
-        <div className="upload-section">
-          <div className="file-input-container">
+      </div>
+
+      <div className="invoice-upload-section">
+        <h3>Upload Invoice for AI Analysis</h3>
+        <p className="upload-description">
+          Upload your invoice (PDF, JPG, JPEG, or PNG) to have our AI analyze and categorize it.
+        </p>
+        
+        <div className="file-upload-container">
+          <div className="file-input-wrapper">
             <input 
               type="file" 
               className="file-input"
               onChange={handleFileChange} 
               accept=".pdf,.jpg,.jpeg,.png" 
             />
-            <p>{filename}</p>
+            <p className="selected-filename">{filename}</p>
           </div>
           
           <button 
-            className="upload-btn" 
-            onClick={handleUpload}
-            disabled={loading || !file}
+            className="upload-button" 
+            onClick={handleUploadInvoice}
+            disabled={processingInvoice || !file}
           >
-            {loading ? "Processing..." : "Upload Invoice"}
+            {processingInvoice ? "Processing..." : "Upload Invoice"}
           </button>
         </div>
         
-        <p className="status-message">{message}</p>
-      </div>
-
-      {error && <div className="error-message">{error}</div>}
-
-      {loading && <div className="loading">Processing invoice... Please wait</div>}
-
-      {response && (
-        <div className="response-container">
-          <div className="response-header">
-            <h3 className="response-title">Invoice Analysis Results</h3>
-            <span className={`response-status ${response.status !== "success" ? "error" : ""}`}>
-              {response.status === "success" ? "✓ Success" : "× Failed"}
-            </span>
+        {processingInvoice && (
+          <div className="processing-message">
+            <p>Processing your invoice. This may take a few moments...</p>
           </div>
-          
-          {response.extracted_data && (
-            <div className="file-info">
-              <div className="file-header">
-                <p><strong>File:</strong> {response.file_name}</p>
-                {response.invoice_id && (
-                  <p><strong>Invoice ID:</strong> {response.invoice_id}</p>
+        )}
+        
+        {invoiceError && (
+          <div className="error-message">
+            <p>{invoiceError}</p>
+          </div>
+        )}
+        
+        {invoiceResponse && (
+          <div className="response-container">
+            <div className="response-header">
+              <h3 className="response-title">Invoice Analysis Results</h3>
+              <span className={`response-status ${invoiceResponse.status !== "success" ? "error" : "success"}`}>
+                {invoiceResponse.status === "success" ? "✓ Success" : "× Failed"}
+              </span>
+            </div>
+            
+            {invoiceResponse.extracted_data && (
+              <div className="file-info">
+                <div className="file-header">
+                  <p><strong>File:</strong> {invoiceResponse.file_name}</p>
+                  {invoiceResponse.invoice_id && (
+                    <p><strong>Invoice ID:</strong> {invoiceResponse.invoice_id}</p>
+                  )}
+                </div>
+                
+                {invoiceResponse.extracted_data.category && (
+                  <div className="category-badge">
+                    <span><strong>Category: </strong>{invoiceResponse.extracted_data.category}</span>
+                  </div>
                 )}
               </div>
-              
-              {response.extracted_data.category && (
-                <div className="category-badge">
-                  <span><strong>Category: </strong>{response.extracted_data.category}</span>
-                </div>
-              )}
-
-              
+            )}
+            
+            <h4 className="data-section-title">Extracted Invoice Data:</h4>
+            <div className="data-display">
+              {formatInvoiceData(invoiceResponse)}
             </div>
-          )}
-          
-          <h4 className="data-section-title">Extracted Invoice Data:</h4>
-          <div className="data-display">
-            {formatInvoiceData(response)}
           </div>
-        </div>
-      )}
-
-      
+        )}
+      </div>
     </div>
   );
 }
 
-export default App;
+export default Dashboard;
