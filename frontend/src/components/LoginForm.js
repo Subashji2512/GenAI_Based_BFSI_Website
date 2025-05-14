@@ -19,7 +19,7 @@ function LoginForm({ setPage }) {
       );
   
       if (res.data.token) {
-        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('accessToken', res.data.token);
         setPage('dashboard');
       }
     } catch (err) {

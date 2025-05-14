@@ -149,9 +149,9 @@ function Dashboard() {
         format: value => processVendorDetails(value)
       },
       { key: 'date', label: 'Date' },
-      { key: 'total_amount', label: 'Total Amount', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
-      { key: 'tax_amount', label: 'Tax', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
-      { key: 'subtotal_amount', label: 'Subtotal', format: value => value ? `$${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'total_amount', label: 'Total Amount', format: value => value ? `₹${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'tax_amount', label: 'Tax', format: value => value ? `₹${parseFloat(value).toFixed(2)}` : 'N/A' },
+      { key: 'subtotal_amount', label: 'Subtotal', format: value => value ? `₹${parseFloat(value).toFixed(2)}` : 'N/A' },
       { key: 'classification_confidence', label: 'Classification Confidence', format: value => value ? `${(parseFloat(value) * 100).toFixed(1)}%` : 'N/A' }
     ];
 
@@ -185,8 +185,8 @@ function Dashboard() {
                   <div className="line-item-details">
                     <span className="item-description">{item.description}</span>
                     <span className="item-quantity">Qty: {item.quantity || 1}</span>
-                    <span className="item-unit-price">Unit: ${parseFloat(item.unit_price || 0).toFixed(2)}</span>
-                    <span className="item-total-price">Total: ${parseFloat(item.total_price || 0).toFixed(2)}</span>
+                    <span className="item-unit-price">Unit: ₹{parseFloat(item.unit_price || 0).toFixed(2)}</span>
+                    <span className="item-total-price">Total: ₹{parseFloat(item.total_price || 0).toFixed(2)}</span>
                   </div>
                 </li>
               ))}
