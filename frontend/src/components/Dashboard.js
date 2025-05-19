@@ -10,7 +10,11 @@ function Dashboard() {
   const [processingInvoice, setProcessingInvoice] = useState(false);
   const [invoiceResponse, setInvoiceResponse] = useState(null);
   const [invoiceError, setInvoiceError] = useState(null);
-
+  const [activeTab, setActiveTab] = useState("invoice"); // Add state for active tab
+  const [statementQuestion, setStatementQuestion] = useState(""); // Add state for statement question
+  const [statementResponse, setStatementResponse] = useState(null); // Add state for statement analysis response
+  const [processingStatement, setProcessingStatement] = useState(false); // Add state for statement processing status
+  const [statementError, setStatementError] = useState(null);
   // Get token from localStorage
   const token = localStorage.getItem('accessToken');
 
@@ -103,6 +107,58 @@ function Dashboard() {
     }
   };
 
+
+    // Handle statement upload and question submission
+    const handleStatementAnalysis = async () => {
+      if (!file) {
+        alert("Please select a statement file first!");
+        return;
+      }
+  
+      if (!statementQuestion.trim()) {
+        alert("Please enter a question about the statement!");
+        return;
+      }
+  
+      setProcessingStatement(true);
+      setStatementError(null);
+      setStatementResponse(null);
+      
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("question", statementQuestion);
+  
+      try {
+        const res = await axios.post(
+          "http://127.0.0.1:5000/analyze-statement",
+          formData,
+          {
+            headers: {
+              "Content-Type": "multipart/form-data",
+              "Authorization": `Bearer ${token}`
+            }
+          }
+        );
+  
+        console.log("Statement analysis response:", res.data);
+        setStatementResponse(res.data);
+        
+      } catch (error) {
+        console.error("Error analyzing statement:", error);
+        
+        if (error.response) {
+          const errorMessage = error.response.data.error || error.response.data.message || error.response.statusText;
+          setStatementError(`Server error: ${errorMessage}`);
+        } else if (error.request) {
+          setStatementError("No response from server. Please check your connection.");
+        } else {
+          setStatementError(`Error: ${error.message}`);
+        }
+      } finally {
+        setProcessingStatement(false);
+      }
+    };
+ 
   // Process vendor details to handle both string and object types
   const processVendorDetails = (vendorDetails) => {
     if (!vendorDetails) return "Unknown Vendor";
@@ -212,81 +268,175 @@ function Dashboard() {
   return (
     <div className="dashboard-container">
       <div className="user-profile-section">
-        <h2>Welcome, {userData.name}</h2>
-        
-      </div>
-
-      <div className="invoice-upload-section">
-        <h3>Upload Invoice for AI Analysis</h3>
-        <p className="upload-description">
-          Upload your invoice (PDF, JPG, JPEG, or PNG) to have our AI analyze and categorize it.
-        </p>
-        
-        <div className="file-upload-container">
-          <div className="file-input-wrapper">
-            <input 
-              type="file" 
-              className="file-input"
-              onChange={handleFileChange} 
-              accept=".pdf,.jpg,.jpeg,.png" 
-            />
-            <p className="selected-filename">{filename}</p>
-          </div>
-          
+        <h2>Welcome, {userData.name || userData.email}</h2>
+        <div className="tab-navigation">
           <button 
-            className="upload-button" 
-            onClick={handleUploadInvoice}
-            disabled={processingInvoice || !file}
+            className={`tab-button ${activeTab === 'invoice' ? 'active' : ''}`}
+            onClick={() => setActiveTab('invoice')}
           >
-            {processingInvoice ? "Processing..." : "Upload Invoice"}
+            INVOICE PROCESSOR
+          </button>
+          <button 
+            className={`tab-button ${activeTab === 'statement' ? 'active' : ''}`}
+            onClick={() => setActiveTab('statement')}
+          >
+            STATEMENT ANALYSIS
           </button>
         </div>
-        
-        {processingInvoice && (
-          <div className="processing-message">
-            <p>Processing your invoice. This may take a few moments...</p>
-          </div>
-        )}
-        
-        {invoiceError && (
-          <div className="error-message">
-            <p>{invoiceError}</p>
-          </div>
-        )}
-        
-        {invoiceResponse && (
-          <div className="response-container">
-            <div className="response-header">
-              <h3 className="response-title">Invoice Analysis Results</h3>
-              <span className={`response-status ${invoiceResponse.status !== "success" ? "error" : "success"}`}>
-                {invoiceResponse.status === "success" ? "✓ Success" : "× Failed"}
-              </span>
+      </div>
+
+      {activeTab === 'invoice' ? (
+        <div className="invoice-upload-section">
+          <h3>Upload Invoice for AI Analysis</h3>
+          <p className="upload-description">
+            Upload your invoice (PDF, JPG, JPEG, or PNG) to have our AI analyze and categorize it.
+          </p>
+          
+          <div className="file-upload-container">
+            <div className="file-input-wrapper">
+              <input 
+                type="file" 
+                className="file-input"
+                onChange={handleFileChange} 
+                accept=".pdf,.jpg,.jpeg,.png" 
+              />
+              <p className="selected-filename">{filename}</p>
             </div>
             
-            {invoiceResponse.extracted_data && (
-              <div className="file-info">
-                <div className="file-header">
-                  <p><strong>File:</strong> {invoiceResponse.file_name}</p>
-                  {invoiceResponse.invoice_id && (
-                    <p><strong>Invoice ID:</strong> {invoiceResponse.invoice_id}</p>
+            <button 
+              className="upload-button" 
+              onClick={handleUploadInvoice}
+              disabled={processingInvoice || !file}
+            >
+              {processingInvoice ? "Processing..." : "Upload Invoice"}
+            </button>
+          </div>
+          
+          {processingInvoice && (
+            <div className="processing-message">
+              <p>Processing your invoice. This may take a few moments...</p>
+            </div>
+          )}
+          
+          {invoiceError && (
+            <div className="error-message">
+              <p>{invoiceError}</p>
+            </div>
+          )}
+          
+          {invoiceResponse && (
+            <div className="response-container">
+              <div className="response-header">
+                <h3 className="response-title">Invoice Analysis Results</h3>
+                <span className={`response-status ${invoiceResponse.status !== "success" ? "error" : "success"}`}>
+                  {invoiceResponse.status === "success" ? "✓ Success" : "× Failed"}
+                </span>
+              </div>
+              
+              {invoiceResponse.extracted_data && (
+                <div className="file-info">
+                  <div className="file-header">
+                    <p><strong>File:</strong> {invoiceResponse.file_name}</p>
+                    {invoiceResponse.invoice_id && (
+                      <p><strong>Invoice ID:</strong> {invoiceResponse.invoice_id}</p>
+                    )}
+                  </div>
+                  
+                  {invoiceResponse.extracted_data.category && (
+                    <div className="category-badge">
+                      <span><strong>Category: </strong>{invoiceResponse.extracted_data.category}</span>
+                    </div>
                   )}
                 </div>
-                
-                {invoiceResponse.extracted_data.category && (
-                  <div className="category-badge">
-                    <span><strong>Category: </strong>{invoiceResponse.extracted_data.category}</span>
-                  </div>
-                )}
+              )}
+              
+              <h4 className="data-section-title">Extracted Invoice Data:</h4>
+              <div className="data-display">
+                {formatInvoiceData(invoiceResponse)}
               </div>
-            )}
-            
-            <h4 className="data-section-title">Extracted Invoice Data:</h4>
-            <div className="data-display">
-              {formatInvoiceData(invoiceResponse)}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="statement-upload-section">
+          <h3>Upload Statement for AI Analysis</h3>
+          <p className="upload-description">
+            Upload your statement (PDF, JPG, JPEG, or PNG) and ask questions to get AI-powered insights.
+          </p>
+          
+          <div className="file-upload-container">
+            <div className="file-input-wrapper">
+              <input 
+                type="file" 
+                className="file-input"
+                onChange={handleFileChange} 
+                accept=".pdf,.jpg,.jpeg,.png" 
+              />
+              <p className="selected-filename">{filename}</p>
             </div>
           </div>
-        )}
-      </div>
+          
+          <div className="statement-question-container">
+            <textarea
+              className="statement-question-input"
+              placeholder="Ask a question about your statement..."
+              value={statementQuestion}
+              onChange={(e) => setStatementQuestion(e.target.value)}
+              rows={3}
+            />
+            <button 
+              className="upload-button" 
+              onClick={handleStatementAnalysis}
+              disabled={processingStatement || !file || !statementQuestion.trim()}
+            >
+              {processingStatement ? "Analyzing..." : "Analyze Statement"}
+            </button>
+          </div>
+          
+          {processingStatement && (
+            <div className="processing-message">
+              <p>Analyzing your statement. This may take a few moments...</p>
+            </div>
+          )}
+          
+          {statementError && (
+            <div className="error-message">
+              <p>{statementError}</p>
+            </div>
+          )}
+          
+          {statementResponse && (
+            <div className="response-container">
+              <div className="response-header">
+                <h3 className="response-title">Statement Analysis Results</h3>
+                <span className={`response-status success`}>
+                  ✓ Analysis Complete
+                </span>
+              </div>
+              
+              <div className="file-info">
+                <div className="file-header">
+                  <p><strong>File:</strong> {filename}</p>
+                </div>
+              </div>
+              
+              <h4 className="data-section-title">AI Response:</h4>
+              <div className="data-display">
+                <div className="statement-response">
+                  <div className="statement-question-display">
+                    <strong>Your Question:</strong>
+                    <p>{statementQuestion}</p>
+                  </div>
+                  <div className="statement-answer">
+                    <strong>AI Answer:</strong>
+                    <p>{statementResponse.answer || "No response from AI"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
