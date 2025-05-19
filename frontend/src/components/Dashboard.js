@@ -379,13 +379,13 @@ function Dashboard() {
           <div className="statement-question-container">
             <textarea
               className="statement-question-input"
-              placeholder="Ask a question about your statement..."
+              placeholder="Ask a question about the statement..."
               value={statementQuestion}
               onChange={(e) => setStatementQuestion(e.target.value)}
               rows={3}
             />
             <button 
-              className="upload-button" 
+              className="upload-button"
               onClick={handleStatementAnalysis}
               disabled={processingStatement || !file || !statementQuestion.trim()}
             >
