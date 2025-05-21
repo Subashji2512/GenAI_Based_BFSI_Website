@@ -5,7 +5,7 @@ import Dashboard from './components/Dashboard';
 import Footer from './components/Footer';
 
 function App() {
-  const [page, setPage] = useState('signup');
+  const [page, setPage] = useState('login');
 
   return (
     <div className="app-container">
