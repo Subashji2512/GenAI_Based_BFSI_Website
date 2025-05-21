@@ -15,6 +15,8 @@ function Dashboard() {
   const [statementResponse, setStatementResponse] = useState(null); // Add state for statement analysis response
   const [processingStatement, setProcessingStatement] = useState(false); // Add state for statement processing status
   const [statementError, setStatementError] = useState(null);
+  const [statementUploaded, setStatementUploaded] = useState(false);
+  const [askingQuestion, setAskingQuestion] = useState(false);
   // Get token from localStorage
   const token = localStorage.getItem('accessToken');
 
@@ -108,56 +110,103 @@ function Dashboard() {
   };
 
 
-    // Handle statement upload and question submission
-    const handleStatementAnalysis = async () => {
-      if (!file) {
-        alert("Please select a statement file first!");
-        return;
-      }
+   const handleUploadStatement = async () => {
+  if (!file) {
+    alert("Please select a statement file first!");
+    return;
+  }
+
+  setProcessingStatement(true);
+  setStatementError(null);
+  setStatementResponse(null);
   
-      if (!statementQuestion.trim()) {
-        alert("Please enter a question about the statement!");
-        return;
-      }
-  
-      setProcessingStatement(true);
-      setStatementError(null);
-      setStatementResponse(null);
-      
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("question", statementQuestion);
-  
-      try {
-        const res = await axios.post(
-          "http://127.0.0.1:5000/upload-statement",
-          formData,
-          {
-            headers: {
-              "Content-Type": "multipart/form-data",
-              "Authorization": `Bearer ${token}`
-            }
-          }
-        );
-  
-        console.log("Statement analysis response:", res.data);
-        setStatementResponse(res.data);
-        
-      } catch (error) {
-        console.error("Error analyzing statement:", error);
-        
-        if (error.response) {
-          const errorMessage = error.response.data.error || error.response.data.message || error.response.statusText;
-          setStatementError(`Server error: ${errorMessage}`);
-        } else if (error.request) {
-          setStatementError("No response from server. Please check your connection.");
-        } else {
-          setStatementError(`Error: ${error.message}`);
+  const formData = new FormData();
+  formData.append("file", file);
+  if (userData && userData.user_id) {
+    formData.append("user_id", userData.user_id);
+  }
+
+  try {
+    const res = await axios.post(
+      "http://127.0.0.1:5000/upload-statement",
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          "Authorization": `Bearer ${token}`
         }
-      } finally {
-        setProcessingStatement(false);
       }
-    };
+    );
+
+    console.log("Statement upload response:", res.data);
+    setStatementUploaded(true);
+    setStatementResponse({
+      message: res.data.message || "Statement uploaded successfully. You can now ask questions about it."
+    });
+    
+    // Clear file input after successful upload
+    setFile(null);
+    setFilename("No file selected");
+    
+  } catch (error) {
+    console.error("Error uploading statement:", error);
+    
+    if (error.response) {
+      const errorMessage = error.response.data.error || error.response.data.message || error.response.statusText;
+      setStatementError(`Server error: ${errorMessage}`);
+    } else if (error.request) {
+      setStatementError("No response from server. Please check your connection.");
+    } else {
+      setStatementError(`Error: ${error.message}`);
+    }
+    setStatementUploaded(false);
+  } finally {
+    setProcessingStatement(false);
+  }
+};
+
+const handleAskQuestion = async () => {
+  if (!statementQuestion.trim()) {
+    alert("Please enter a question about the statement!");
+    return;
+  }
+
+  setAskingQuestion(true);
+  setStatementError(null);
+
+  try {
+    const res = await axios.post(
+      "http://127.0.0.1:5000/ask-question",
+      { question: statementQuestion },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        }
+      }
+    );
+
+    console.log("Question response:", res.data);
+    setStatementResponse({
+      ...statementResponse,
+      answer: res.data.answer
+    });
+    
+  } catch (error) {
+    console.error("Error asking question:", error);
+    
+    if (error.response) {
+      const errorMessage = error.response.data.error || error.response.data.message || error.response.statusText;
+      setStatementError(`Server error: ${errorMessage}`);
+    } else if (error.request) {
+      setStatementError("No response from server. Please check your connection.");
+    } else {
+      setStatementError(`Error: ${error.message}`);
+    }
+  } finally {
+    setAskingQuestion(false);
+  }
+};
  
   // Process vendor details to handle both string and object types
   const processVendorDetails = (vendorDetails) => {
@@ -359,86 +408,106 @@ function Dashboard() {
         </div>
       ) : (
         <div className="statement-upload-section">
-          <h3>Upload Statement for AI Analysis</h3>
-          <p className="upload-description">
-            Upload your statement (PDF, JPG, JPEG, or PNG) and ask questions to get AI-powered insights.
-          </p>
-          
-          <div className="file-upload-container">
-            <div className="file-input-wrapper">
-              <input 
-                type="file" 
-                className="file-input"
-                onChange={handleFileChange} 
-                accept=".pdf,.jpg,.jpeg,.png" 
-              />
-              <p className="selected-filename">{filename}</p>
-            </div>
+  <h3>Upload Statement for AI Analysis</h3>
+  <p className="upload-description">
+    Upload your statement (PDF, JPG, JPEG, or PNG) and ask questions to get AI-powered insights.
+  </p>
+  
+  {!statementUploaded ? (
+    // Statement Upload Phase
+    <div className="file-upload-container">
+      <div className="file-input-wrapper">
+        <input 
+          type="file" 
+          className="file-input"
+          onChange={handleFileChange} 
+          accept=".pdf,.jpg,.jpeg,.png" 
+        />
+        <p className="selected-filename">{filename}</p>
+      </div>
+      
+      <button 
+        className="upload-button"
+        onClick={handleUploadStatement}
+        disabled={processingStatement || !file}
+      >
+        {processingStatement ? "Processing..." : "Upload Statement"}
+      </button>
+    </div>
+  ) : (
+    // Question Phase - Only shown after successful upload
+    <div className="statement-question-container">
+      <p className="statement-upload-success">
+        Statement processed successfully! Ask questions about your statement below.
+      </p>
+      <textarea
+        className="statement-question-input"
+        placeholder="Ask a question about the statement..."
+        value={statementQuestion}
+        onChange={(e) => setStatementQuestion(e.target.value)}
+        rows={3}
+      />
+      <button 
+        className="ask-button"
+        onClick={handleAskQuestion}
+        disabled={askingQuestion || !statementQuestion.trim()}
+      >
+        {askingQuestion ? "Getting Answer..." : "Get Answer"}
+      </button>
+    </div>
+  )}
+  
+  {processingStatement && (
+    <div className="processing-message">
+      <p>Processing your statement. This may take a few moments...</p>
+    </div>
+  )}
+  
+  {askingQuestion && (
+    <div className="processing-message">
+      <p>Finding answer to your question...</p>
+    </div>
+  )}
+  
+  {statementError && (
+    <div className="error-message">
+      <p>{statementError}</p>
+    </div>
+  )}
+  
+  {statementResponse && (
+    <div className="response-container">
+      <div className="response-header">
+        <h3 className="response-title">Statement Analysis</h3>
+        <span className="response-status success">
+          ✓ {statementUploaded ? "Statement Processed" : ""}
+        </span>
+      </div>
+      
+      {statementResponse.message && (
+        <div className="statement-message">
+          <p>{statementResponse.message}</p>
+        </div>
+      )}
+      
+      {statementResponse.answer && (
+        <div className="statement-response">
+          <div className="statement-question-display">
+            <strong>Your Question:</strong>
+            <p>{statementQuestion}</p>
           </div>
-          
-          <div className="statement-question-container">
-            <textarea
-              className="statement-question-input"
-              placeholder="Ask a question about the statement..."
-              value={statementQuestion}
-              onChange={(e) => setStatementQuestion(e.target.value)}
-              rows={3}
-            />
-            <button 
-              className="upload-button"
-              onClick={handleStatementAnalysis}
-              disabled={processingStatement || !file || !statementQuestion.trim()}
-            >
-              {processingStatement ? "Analyzing..." : "Analyze Statement"}
-            </button>
+          <div className="statement-answer">
+            <strong>AI Answer:</strong>
+            <p className="ai-response-text">{statementResponse.answer}</p>
           </div>
-          
-          {processingStatement && (
-            <div className="processing-message">
-              <p>Analyzing your statement. This may take a few moments...</p>
-            </div>
-          )}
-          
-          {statementError && (
-            <div className="error-message">
-              <p>{statementError}</p>
-            </div>
-          )}
-          
-          {statementResponse && (
-            <div className="response-container">
-              <div className="response-header">
-                <h3 className="response-title">Statement Analysis Results</h3>
-                <span className={`response-status success`}>
-                  ✓ Analysis Complete
-                </span>
-              </div>
-              
-              <div className="file-info">
-                <div className="file-header">
-                  <p><strong>File:</strong> {filename}</p>
-                </div>
-              </div>
-              
-              <h4 className="data-section-title">AI Response:</h4>
-              <div className="data-display">
-                <div className="statement-response">
-                  <div className="statement-question-display">
-                    <strong>Your Question:</strong>
-                    <p>{statementQuestion}</p>
-                  </div>
-                  <div className="statement-answer">
-                    <strong>AI Answer:</strong>
-                    <p>{statementResponse.answer || "No response from AI"}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
+  )}
+</div>
+      )}
+    </div>
   );
-}
+} 
 
 export default Dashboard;

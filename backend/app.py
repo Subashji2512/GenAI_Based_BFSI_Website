@@ -396,13 +396,13 @@ def upload_statement():
         file.save(file_path)
         # Check if files are images (jpg/png)
         combined_text = ""
-        
+        print("file came")
         if file_path.lower().endswith(('.jpg', '.jpeg', '.png')):
             img = Image.open(file_path)
             combined_text += extract_text_from_image(img)
         else:
             combined_text += get_pdf_text([file_path])
-
+        print("to chunks")
         text_chunks = get_text_chunks(combined_text)
         get_vector_store(text_chunks)
         return jsonify({"message": "Files processed successfully!"}), 200

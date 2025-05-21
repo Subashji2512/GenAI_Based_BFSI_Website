@@ -249,6 +249,19 @@ body {
   align-self: flex-end;
 }
 
+.ask-button{
+   background-color: #3498db;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 24px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+  align-self: flex-start;
+}
+
 .upload-button:hover:not(:disabled) {
   background-color: #2980b9;
 }

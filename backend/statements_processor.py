@@ -21,9 +21,12 @@ if api_key:
     genai.configure(api_key=api_key)
 
 def extract_text_from_image(image):
+    print("text to image")
     return pytesseract.image_to_string(image)
 
+
 def get_pdf_text(pdf_paths):
+    print("get_pdf func")
     text = ""
     for pdf_path in pdf_paths:
         with pdfplumber.open(pdf_path) as pdf_reader:
@@ -39,6 +42,7 @@ def get_pdf_text(pdf_paths):
     return text
 
 def get_text_chunks(text):
+    print("in text_chunks")
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=10000, chunk_overlap=1000)
     chunks = text_splitter.split_text(text)
     return chunks
