@@ -8,11 +8,13 @@ import time
 import json
 from werkzeug.utils import secure_filename
 from sqlalchemy import text
-import tempfile
+from PIL import Image
 from pathlib import Path
 from datetime import datetime
 from verify import verify_documents
+from statements_processor import user_input,get_vector_store,get_text_chunks,get_pdf_text,extract_text_from_image
 from dotenv import load_dotenv
+
 
 # Import our invoice processor module
 from invoice_processor import InvoiceProcessor
@@ -35,9 +37,10 @@ UPLOAD_FOLDER = os.path.join(os.getcwd(), 'uploads')
 AADHAR_FOLDER = os.path.join(UPLOAD_FOLDER, 'aadhar')
 PAN_FOLDER = os.path.join(UPLOAD_FOLDER, 'pan')
 INVOICE_FOLDER = os.path.join(UPLOAD_FOLDER, 'invoices')
+STATEMENT_FOLDER = os.path.join(UPLOAD_FOLDER, 'statements')
 
 # Create folders if they don't exist
-for folder in [UPLOAD_FOLDER, AADHAR_FOLDER, PAN_FOLDER, INVOICE_FOLDER]:
+for folder in [UPLOAD_FOLDER, AADHAR_FOLDER, PAN_FOLDER, INVOICE_FOLDER,STATEMENT_FOLDER]:
     if not os.path.exists(folder):
         os.makedirs(folder)
 
@@ -46,6 +49,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['AADHAR_FOLDER'] = AADHAR_FOLDER
 app.config['PAN_FOLDER'] = PAN_FOLDER
 app.config['INVOICE_FOLDER'] = INVOICE_FOLDER
+app.config['STATEMENT_FOLDER'] = STATEMENT_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 app.config['JWT_TOKEN_LOCATION'] = ['headers']
 app.config['JWT_HEADER_NAME'] = 'Authorization'
@@ -66,7 +70,7 @@ jwt = JWTManager(app)
 invoice_processor = InvoiceProcessor(api_key=GEMINI_API_KEY)
 
 # --- Create Upload Folders ---
-for folder in [app.config['UPLOAD_FOLDER'], app.config['AADHAR_FOLDER'], app.config['PAN_FOLDER'], app.config['INVOICE_FOLDER']]:
+for folder in [app.config['UPLOAD_FOLDER'], app.config['AADHAR_FOLDER'], app.config['PAN_FOLDER'], app.config['INVOICE_FOLDER'], app.config['STATEMENT_FOLDER']]:
     os.makedirs(folder, exist_ok=True)
 
 # Helper Functions
@@ -275,44 +279,6 @@ def dashboard():
         print("Dashboard Error:", str(e))
         return jsonify({"error": f"Internal server error: {str(e)}"}), 500
 
-@app.route('/user-invoices', methods=['GET'])
-def get_user_invoices():
-    # Get user_id from query parameters or default to 0
-    user_id = request.args.get('user_id', 0, type=int)
-    
-    # If no user_id or user_id is 0, return empty list
-    if not user_id:
-        return jsonify({'invoices': []})
-
-    # Get all invoices for this user
-    try:
-        user = Users.query.get(user_id)
-        if not user:
-            return jsonify({'message': 'User not found', 'invoices': []}), 404
-            
-        invoices = Invoice.query.filter_by(user_id=user_id).all()
-        invoice_list = []
-        
-        for invoice in invoices:
-            invoice_data = {
-                'id': invoice.id,
-                'invoice_number': invoice.invoice_number,
-                'vendor_details': invoice.vendor_details,
-                'date': invoice.date,
-                'total_amount': invoice.total_amount,
-                'tax_amount': invoice.tax_amount,
-                'subtotal_amount': invoice.subtotal_amount,
-                'category': invoice.category,
-                'classification_confidence': invoice.classification_confidence,
-                'line_items': json.loads(invoice.line_items) if invoice.line_items else []
-            }
-            invoice_list.append(invoice_data)
-            
-        return jsonify({
-            'invoices': invoice_list
-        })
-    except Exception as e:
-        return jsonify({'message': f'Error retrieving invoices: {str(e)}', 'invoices': []}), 500
 
 @app.route('/upload-invoice', methods=['POST'])
 def upload_invoice():
@@ -401,6 +367,57 @@ def upload_invoice():
         print(f"Error processing invoice: {str(e)}")
         return jsonify({"error": f"Error processing invoice: {str(e)}"}), 500
 
+
+@app.route('/upload-statement', methods=['POST'])
+def upload_statement():
+    # Get user_id from form or query parameters, default to 1 if not provided
+    user = request.form.get('user_id', request.args.get('user_id', 1, type=int))
+    
+    if not user:
+        return jsonify({'message': 'User not found'}), 404
+
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file part in the request'}), 400
+
+    file = request.files['file']
+
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+
+    allowed_extensions = {'pdf', 'jpg', 'jpeg', 'png'}
+    if not file.filename.split('.')[-1].lower() in allowed_extensions:
+        return jsonify({'error': 'File type not allowed. Please upload PDF, JPG, JPEG, or PNG.'}), 400
+    
+    try:
+        # Save the file
+        timestamp = int(time.time())
+        filename = f"{timestamp}_{secure_filename(file.filename)}"
+        file_path = os.path.join(app.config['STATEMENT_FOLDER'], filename)
+        file.save(file_path)
+        # Check if files are images (jpg/png)
+        combined_text = ""
+        
+        if file_path.lower().endswith(('.jpg', '.jpeg', '.png')):
+            img = Image.open(file_path)
+            combined_text += extract_text_from_image(img)
+        else:
+            combined_text += get_pdf_text([file_path])
+
+        text_chunks = get_text_chunks(combined_text)
+        get_vector_store(text_chunks)
+        return jsonify({"message": "Files processed successfully!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/ask-question', methods=['POST'])
+def ask():
+    data = request.json
+    user_question = data.get('question')
+    try:
+        response_text = user_input(user_question)
+        return jsonify({"answer": response_text}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 # --- Initialize DB ---
 with app.app_context():
     db.create_all()
