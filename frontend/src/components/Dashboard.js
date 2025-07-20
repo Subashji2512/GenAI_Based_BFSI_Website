@@ -493,11 +493,11 @@ const handleAskQuestion = async () => {
       {statementResponse.answer && (
         <div className="statement-response">
           <div className="statement-question-display">
-            <strong>Your Question:</strong>
+            <strong>Question:</strong>
             <p>{statementQuestion}</p>
           </div>
           <div className="statement-answer">
-            <strong>AI Answer:</strong>
+            <strong>Companion Reply:</strong>
             <p className="ai-response-text">{statementResponse.answer}</p>
           </div>
         </div>
