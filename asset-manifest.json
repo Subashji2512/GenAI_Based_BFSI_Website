@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/GenAI_Based_BFSI_Website/static/css/main.585f2145.css",
+    "main.js": "/GenAI_Based_BFSI_Website/static/js/main.a8cc2d42.js",
+    "index.html": "/GenAI_Based_BFSI_Website/index.html",
+    "main.585f2145.css.map": "/GenAI_Based_BFSI_Website/static/css/main.585f2145.css.map",
+    "main.a8cc2d42.js.map": "/GenAI_Based_BFSI_Website/static/js/main.a8cc2d42.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.585f2145.css",
+    "static/js/main.a8cc2d42.js"
+  ]
+}
